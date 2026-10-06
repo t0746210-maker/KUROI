@@ -3,6 +3,7 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import type { Avatar } from '../avatar/Avatar';
 import { bakeScene, bakedToGroup, textureToPNG, type BakedMesh } from './bake';
+import { collectRig } from './fbxRig';
 import { buildFBX } from './fbx';
 import { exportVRM, type VRMMeta } from './vrm';
 import { write3MF, writeBVH, writeCollada, writeOBJ, writePLY, writeSTL, writeX3D } from './writers';
@@ -122,6 +123,22 @@ async function withStandardMaterials<T>(root: THREE.Object3D, fn: () => Promise<
   }
 }
 
+/** 焼き込みメッシュが参照するテクスチャを PNG に変換 */
+async function encodeTextures(meshes: BakedMesh[]): Promise<Map<THREE.Texture, Uint8Array>> {
+  const out = new Map<THREE.Texture, Uint8Array>();
+  for (const m of meshes)
+    for (const mat of m.materials) {
+      if (!mat.map || out.has(mat.map)) continue;
+      try {
+        const png = await textureToPNG(mat.map);
+        if (png) out.set(mat.map, png);
+      } catch (e) {
+        console.warn('テクスチャの変換に失敗', e);
+      }
+    }
+  return out;
+}
+
 const bake = (ctx: ExportContext): Promise<BakedMesh[]> => withExportState(ctx, () => bakeScene(ctx.content));
 
 async function gltf(ctx: ExportContext, binary: boolean): Promise<ArrayBuffer | object> {
@@ -203,15 +220,33 @@ export const FORMATS: ExportFormat[] = [
   },
   {
     id: 'fbx',
-    label: 'FBX 7.4 バイナリ',
+    label: 'FBX 7.4（ボーン付き）',
     ext: 'fbx',
     category: 'cg',
-    desc: 'Maya / 3ds Max / Blender / Unity / Unreal 向けの業界標準形式。現在のポーズで焼き込んだメッシュ・マテリアル・頂点カラー・UV。',
-    tags: ['マテリアル', '頂点カラー', 'UV'],
+    desc: 'Unity / Unreal / Blender / Maya / 3ds Max / Mixamo 向け。スケルトン・スキンウェイト・表情ブレンドシェイプ・アニメーション・テクスチャ埋め込み。',
+    tags: ['ボーン', 'スキン', 'ブレンドシェイプ', 'アニメ', 'テクスチャ'],
+    async run(ctx) {
+      const data = await withExportState(ctx, async () => {
+        const av = ctx.avatar;
+        const statics = bakeScene(ctx.content, av ? (o) => o === av.holder : undefined);
+        const rig = av ? collectRig(av, { tpose: ctx.options.tpose, includeAnimations: ctx.options.includeAnimations }) : null;
+        const textures = await encodeTextures([...statics, ...(rig?.meshes.map((m) => m.mesh) ?? [])]);
+        return buildFBX(statics, { sceneName: ctx.name, rig, textures });
+      });
+      return { data: data as BlobPart, filename: `${ctx.name}.fbx`, mime: 'application/octet-stream' };
+    },
+  },
+  {
+    id: 'fbx-static',
+    label: 'FBX 7.4（ポーズ焼き込み）',
+    ext: 'fbx',
+    category: 'cg',
+    desc: '現在のポーズ・表情をメッシュに焼き込んだボーンなし FBX。古いツールや静止画用途、3D プリント前の調整に。',
+    tags: ['静的メッシュ', 'マテリアル', 'テクスチャ'],
     async run(ctx) {
       const baked = await bake(ctx);
-      const data = buildFBX(baked, { sceneName: ctx.name });
-      return { data: data as BlobPart, filename: `${ctx.name}.fbx`, mime: 'application/octet-stream' };
+      const data = buildFBX(baked, { sceneName: ctx.name, textures: await encodeTextures(baked) });
+      return { data: data as BlobPart, filename: `${ctx.name}_static.fbx`, mime: 'application/octet-stream' };
     },
   },
   {

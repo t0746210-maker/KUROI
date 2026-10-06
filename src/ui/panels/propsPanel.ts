@@ -28,7 +28,7 @@ export function buildPropsPanel(app: App): HTMLElement {
           h('li', null, '「アバター」タブで体型・顔・髪・衣装を調整'),
           h('li', null, '「ポーズ/動き」でポーズ・表情・アニメーション'),
           h('li', null, '「モデリング」で小物やステージを追加'),
-          h('li', null, '右上の「エクスポート」から 17 形式で書き出し'),
+          h('li', null, '右上の「エクスポート」から 18 形式で書き出し'),
         ),
       ),
     );

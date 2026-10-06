@@ -18,7 +18,7 @@ export function openHelp() {
     ['Esc', '選択解除'],
   ];
   const body = h('div', { class: 'help' },
-    h('p', null, 'KUROI Studio はブラウザだけで動くアバター＆3D モデリングスタジオです。パラメトリックにキャラクターを作り、ポーズ・表情・揺れ物を付けて、VRM 1.0 / 0.x・glTF・FBX・OBJ・USDZ・STL・3MF など 17 形式に書き出せます。'),
+    h('p', null, 'KUROI Studio はブラウザだけで動くアバター＆3D モデリングスタジオです。パラメトリックにキャラクターを作り、ポーズ・表情・揺れ物を付けて、VRM 1.0 / 0.x・glTF・FBX・OBJ・USDZ・STL・3MF など 18 形式に書き出せます。'),
     h('table', null, ...rows.map(([k, v]) => h('tr', null, h('td', null, h('kbd', null, k)), h('td', null, v)))),
     h('p', { class: 'hint' }, '作業内容はブラウザに自動保存されます。ファイルとして残すには「保存」で .kuroi プロジェクトを書き出してください。'),
   );

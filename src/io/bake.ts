@@ -64,118 +64,140 @@ export function isExportableMesh(o: THREE.Object3D): o is THREE.Mesh {
 }
 
 /**
+ * 1 つのメッシュを書き出し用データに変換する。
+ * bind=false: 現在のポーズ・表情・スキニングをワールド座標に焼き込む
+ * bind=true : スキニング前のバインド姿勢（メッシュのローカル座標）のまま取り出す（ボーン付き FBX 用）
+ */
+export function bakeMesh(mesh: THREE.Mesh, name: string, bind = false): BakedMesh {
+  const v = new THREE.Vector3();
+  const nm = new THREE.Matrix3();
+  const g = mesh.geometry;
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const n = pos.count;
+  const positions = new Float32Array(n * 3);
+  const deformed = (mesh as THREE.SkinnedMesh).isSkinnedMesh || !!g.morphAttributes.position?.length;
+  for (let i = 0; i < n; i++) {
+    if (bind) v.fromBufferAttribute(pos, i);
+    else {
+      mesh.getVertexPosition(i, v);
+      v.applyMatrix4(mesh.matrixWorld);
+    }
+    positions[i * 3] = v.x;
+    positions[i * 3 + 1] = v.y;
+    positions[i * 3 + 2] = v.z;
+  }
+  let indices: Uint32Array;
+  if (g.index) indices = Uint32Array.from(g.index.array as ArrayLike<number>);
+  else indices = Uint32Array.from({ length: n }, (_, i) => i);
+  if (!bind && mesh.matrixWorld.determinant() < 0) {
+    for (let i = 0; i < indices.length; i += 3) {
+      const t = indices[i + 1];
+      indices[i + 1] = indices[i + 2];
+      indices[i + 2] = t;
+    }
+  }
+  let normals: Float32Array;
+  if ((bind || !deformed) && g.attributes.normal) {
+    normals = new Float32Array(n * 3);
+    if (bind) nm.identity();
+    else nm.getNormalMatrix(mesh.matrixWorld);
+    const na = g.attributes.normal as THREE.BufferAttribute;
+    for (let i = 0; i < n; i++) {
+      v.fromBufferAttribute(na, i).applyMatrix3(nm).normalize();
+      normals.set([v.x, v.y, v.z], i * 3);
+    }
+  } else {
+    const tmp = new THREE.BufferGeometry();
+    tmp.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    tmp.setIndex(new THREE.BufferAttribute(indices, 1));
+    tmp.computeVertexNormals();
+    normals = (tmp.attributes.normal as THREE.BufferAttribute).array as Float32Array;
+  }
+  const uvAttr = g.attributes.uv as THREE.BufferAttribute | undefined;
+  const uvs = uvAttr ? Float32Array.from({ length: n * 2 }, (_, i) => uvAttr.getComponent(Math.floor(i / 2), i % 2)) : null;
+
+  const mats = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map(bakeMaterial);
+  let groups = g.groups.length
+    ? g.groups.map((gr) => ({ start: gr.start, count: Math.min(gr.count, indices.length - gr.start), materialIndex: Array.isArray(mesh.material) ? gr.materialIndex ?? 0 : 0 }))
+    : [{ start: 0, count: indices.length, materialIndex: 0 }];
+  groups = groups.filter((gr) => gr.count > 0 && gr.materialIndex < mats.length);
+  // 連続した同一マテリアルのグループを結合（BoxGeometry の 6 面など）
+  groups = groups.reduce<typeof groups>((acc, gr) => {
+    const last = acc[acc.length - 1];
+    if (last && last.materialIndex === gr.materialIndex && last.start + last.count === gr.start) last.count += gr.count;
+    else acc.push({ ...gr });
+    return acc;
+  }, []);
+
+  // 頂点カラー（マテリアル色を乗算して sRGB に）
+  const colors = new Float32Array(n * 3);
+  const vc = g.attributes.color as THREE.BufferAttribute | undefined;
+  let hasVC = false;
+  const vertMat = new Int32Array(n).fill(-1);
+  for (const gr of groups) for (let k = gr.start; k < gr.start + gr.count; k++) vertMat[indices[k]] = gr.materialIndex;
+  for (let i = 0; i < n; i++) {
+    const bm = mats[Math.max(0, vertMat[i])] ?? mats[0];
+    let r = bm.color[0], gg = bm.color[1], b = bm.color[2];
+    if (vc && bm.vertexColors) {
+      _c.setRGB(vc.getX(i), vc.getY(i), vc.getZ(i)).convertLinearToSRGB();
+      r *= _c.r;
+      gg *= _c.g;
+      b *= _c.b;
+      hasVC = true;
+    }
+    colors[i * 3] = r;
+    colors[i * 3 + 1] = gg;
+    colors[i * 3 + 2] = b;
+  }
+  // 頂点カラーのみで色を持つマテリアルは平均色を代表色にする（頂点カラー非対応形式向け）
+  if (vc) {
+    mats.forEach((bm, mi) => {
+      if (!bm.vertexColors) return;
+      let sr = 0, sg = 0, sb = 0, cnt = 0;
+      for (let i = 0; i < n; i++)
+        if (vertMat[i] === mi) {
+          sr += colors[i * 3];
+          sg += colors[i * 3 + 1];
+          sb += colors[i * 3 + 2];
+          cnt++;
+        }
+      if (cnt) bm.color = [sr / cnt, sg / cnt, sb / cnt];
+    });
+  }
+
+  return { name, positions, normals, uvs, colors, hasVertexColors: hasVC, indices, groups, materials: mats };
+}
+
+export function safeMeshName(raw: string, used: Set<string>) {
+  const base = (raw || 'Mesh').replace(/[^\w\-.\u3040-\u30ff\u4e00-\u9faf]/g, '_');
+  let name = base;
+  let k = 1;
+  while (used.has(name)) name = `${base}_${k++}`;
+  used.add(name);
+  return name;
+}
+
+/**
  * シーンの現在の見た目（ポーズ・表情・スキニング込み）をワールド座標の静的メッシュに焼き込む。
  * FBX / OBJ / STL / PLY / DAE / X3D / 3MF / USDZ の書き出しで共通利用。
  */
-export function bakeScene(root: THREE.Object3D): BakedMesh[] {
+export function bakeScene(root: THREE.Object3D, exclude?: (o: THREE.Object3D) => boolean): BakedMesh[] {
   root.updateMatrixWorld(true);
-  const out: BakedMesh[] = [];
-  const v = new THREE.Vector3();
-  const nm = new THREE.Matrix3();
   const meshes: THREE.Mesh[] = [];
   root.traverse((o) => {
-    if (isExportableMesh(o)) meshes.push(o);
+    if (isExportableMesh(o) && !(exclude && hasAncestor(o, exclude))) meshes.push(o);
   });
-  const usedNames = new Set<string>();
-  for (const mesh of meshes) {
-    const g = mesh.geometry;
-    const pos = g.attributes.position as THREE.BufferAttribute;
-    const n = pos.count;
-    const positions = new Float32Array(n * 3);
-    const deformed = (mesh as THREE.SkinnedMesh).isSkinnedMesh || !!g.morphAttributes.position?.length;
-    for (let i = 0; i < n; i++) {
-      mesh.getVertexPosition(i, v);
-      v.applyMatrix4(mesh.matrixWorld);
-      positions[i * 3] = v.x;
-      positions[i * 3 + 1] = v.y;
-      positions[i * 3 + 2] = v.z;
-    }
-    let indices: Uint32Array;
-    if (g.index) indices = Uint32Array.from(g.index.array as ArrayLike<number>);
-    else indices = Uint32Array.from({ length: n }, (_, i) => i);
-    if (mesh.matrixWorld.determinant() < 0) {
-      for (let i = 0; i < indices.length; i += 3) {
-        const t = indices[i + 1];
-        indices[i + 1] = indices[i + 2];
-        indices[i + 2] = t;
-      }
-    }
-    let normals: Float32Array;
-    if (!deformed && g.attributes.normal) {
-      normals = new Float32Array(n * 3);
-      nm.getNormalMatrix(mesh.matrixWorld);
-      const na = g.attributes.normal as THREE.BufferAttribute;
-      for (let i = 0; i < n; i++) {
-        v.fromBufferAttribute(na, i).applyMatrix3(nm).normalize();
-        normals.set([v.x, v.y, v.z], i * 3);
-      }
-    } else {
-      const tmp = new THREE.BufferGeometry();
-      tmp.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      tmp.setIndex(new THREE.BufferAttribute(indices, 1));
-      tmp.computeVertexNormals();
-      normals = (tmp.attributes.normal as THREE.BufferAttribute).array as Float32Array;
-    }
-    const uvAttr = g.attributes.uv as THREE.BufferAttribute | undefined;
-    const uvs = uvAttr ? Float32Array.from({ length: n * 2 }, (_, i) => uvAttr.getComponent(Math.floor(i / 2), i % 2)) : null;
+  const used = new Set<string>();
+  return meshes.map((m) => bakeMesh(m, safeMeshName(m.name, used)));
+}
 
-    const mats = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map(bakeMaterial);
-    let groups = g.groups.length
-      ? g.groups.map((gr) => ({ start: gr.start, count: Math.min(gr.count, indices.length - gr.start), materialIndex: Array.isArray(mesh.material) ? gr.materialIndex ?? 0 : 0 }))
-      : [{ start: 0, count: indices.length, materialIndex: 0 }];
-    groups = groups.filter((gr) => gr.count > 0 && gr.materialIndex < mats.length);
-    // 連続した同一マテリアルのグループを結合（BoxGeometry の 6 面など）
-    groups = groups.reduce<typeof groups>((acc, gr) => {
-      const last = acc[acc.length - 1];
-      if (last && last.materialIndex === gr.materialIndex && last.start + last.count === gr.start) last.count += gr.count;
-      else acc.push({ ...gr });
-      return acc;
-    }, []);
-
-    // 頂点カラー（マテリアル色を乗算して sRGB に）
-    const colors = new Float32Array(n * 3);
-    const vc = g.attributes.color as THREE.BufferAttribute | undefined;
-    let hasVC = false;
-    const vertMat = new Int32Array(n).fill(-1);
-    for (const gr of groups) for (let k = gr.start; k < gr.start + gr.count; k++) vertMat[indices[k]] = gr.materialIndex;
-    for (let i = 0; i < n; i++) {
-      const bm = mats[Math.max(0, vertMat[i])] ?? mats[0];
-      let r = bm.color[0], gg = bm.color[1], b = bm.color[2];
-      if (vc && bm.vertexColors) {
-        _c.setRGB(vc.getX(i), vc.getY(i), vc.getZ(i)).convertLinearToSRGB();
-        r *= _c.r;
-        gg *= _c.g;
-        b *= _c.b;
-        hasVC = true;
-      }
-      colors[i * 3] = r;
-      colors[i * 3 + 1] = gg;
-      colors[i * 3 + 2] = b;
-    }
-    // 頂点カラーのみで色を持つマテリアルは平均色を代表色にする（頂点カラー非対応形式向け）
-    if (vc) {
-      mats.forEach((bm, mi) => {
-        if (!bm.vertexColors) return;
-        let sr = 0, sg = 0, sb = 0, cnt = 0;
-        for (let i = 0; i < n; i++)
-          if (vertMat[i] === mi) {
-            sr += colors[i * 3];
-            sg += colors[i * 3 + 1];
-            sb += colors[i * 3 + 2];
-            cnt++;
-          }
-        if (cnt) bm.color = [sr / cnt, sg / cnt, sb / cnt];
-      });
-    }
-
-    let name = (mesh.name || 'Mesh').replace(/[^\w\-.぀-ヿ一-龯]/g, '_');
-    let k = 1;
-    const base = name;
-    while (usedNames.has(name)) name = `${base}_${k++}`;
-    usedNames.add(name);
-    out.push({ name, positions, normals, uvs, colors, hasVertexColors: hasVC, indices, groups, materials: mats });
+function hasAncestor(o: THREE.Object3D, f: (o: THREE.Object3D) => boolean) {
+  let p: THREE.Object3D | null = o;
+  while (p) {
+    if (f(p)) return true;
+    p = p.parent;
   }
-  return out;
+  return false;
 }
 
 /** 焼き込み結果を three.js オブジェクトに戻す（three 標準エクスポーター用） */
