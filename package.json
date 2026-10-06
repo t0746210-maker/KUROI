@@ -1,0 +1,26 @@
+{
+  "name": "kuroi-studio",
+  "private": true,
+  "version": "1.0.0",
+  "description": "KUROI Studio — ブラウザで動くアバター＆3Dモデリングスタジオ。VRM / glTF / FBX / OBJ / STL / USDZ など多数の形式に出力。",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@pixiv/three-vrm": "^3.5.5",
+    "@types/three": "^0.186.0",
+    "gltf-validator": "^2.0.0-dev.3.10",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3"
+  }
+}
