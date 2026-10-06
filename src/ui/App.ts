@@ -18,8 +18,10 @@ import { PoseEditor } from './PoseEditor';
 import { Painter } from '../paint/Painter';
 import { UVBaker } from '../paint/PaintLayer';
 import { buildPaintPanel } from './panels/paintPanel';
+import { HairEditor } from './HairEditor';
+import { buildHairPanel } from './panels/hairPanel';
 
-type Tab = 'avatar' | 'paint' | 'model' | 'pose' | 'scene';
+type Tab = 'avatar' | 'hair' | 'paint' | 'model' | 'pose' | 'scene';
 
 export class App {
   studio: Studio;
@@ -32,6 +34,7 @@ export class App {
   statusStats!: HTMLElement;
   poseEditor: PoseEditor;
   painter: Painter;
+  hairEditor: HairEditor;
   mixers = new Map<THREE.Object3D, THREE.AnimationMixer>();
   exportOptions: ExportOptions;
   private rebuildQueued = false;
@@ -53,7 +56,7 @@ export class App {
     this.studio = new Studio(viewport);
     const saved = loadAutosave();
     this.avatar = new Avatar(saved?.avatar?.params ?? {});
-    this.committedParams = { ...this.avatar.params };
+    this.committedParams = structuredClone(this.avatar.params);
     this.studio.content.add(this.avatar.holder);
     this.studio.addUpdater((dt) => {
       this.avatar.update(dt);
@@ -62,6 +65,7 @@ export class App {
     this.poseEditor = new PoseEditor(this);
     this.avatar.baker = new UVBaker(this.studio.renderer);
     this.painter = new Painter(this);
+    this.hairEditor = new HairEditor(this);
     this.painter.onChange = () => this.tab === 'paint' && this.setTab('paint');
     this.exportOptions = {
       tpose: false,
@@ -104,10 +108,10 @@ export class App {
 
   /** パラメータ確定（履歴に登録） */
   commitParams(label: string) {
-    const before = { ...this.committedParams };
-    const after = { ...this.avatar.params };
+    const before = structuredClone(this.committedParams);
+    const after = structuredClone(this.avatar.params);
     if (JSON.stringify(before) === JSON.stringify(after)) return;
-    this.committedParams = { ...after };
+    this.committedParams = structuredClone(after);
     this.studio.history.push({
       label,
       undo: () => this.setAvatarParams(before, false),
@@ -117,11 +121,11 @@ export class App {
   }
 
   setAvatarParams(p: AvatarParams, record = true, label = 'アバター変更') {
-    Object.assign(this.avatar.params, p);
+    Object.assign(this.avatar.params, structuredClone(p));
     this.rebuildNow();
     if (record) this.commitParams(label);
-    else this.committedParams = { ...this.avatar.params };
-    if (this.tab === 'avatar') this.setTab('avatar');
+    else this.committedParams = structuredClone(this.avatar.params);
+    if (this.tab === 'avatar' || this.tab === 'hair') this.setTab(this.tab);
   }
 
   queueRebuild() {
@@ -140,6 +144,7 @@ export class App {
     if (this.studio.wireframe) this.studio.setWireframe(true);
     if (wasSelected) this.studio.select(this.avatar.root);
     this.poseEditor.refresh();
+    this.hairEditor?.refresh();
     this.statusMsg.textContent = `アバター再生成 ${(performance.now() - t0).toFixed(0)} ms`;
     this.exportOptions.vrmMeta.name = this.avatar.params.name;
     this.exportOptions.vrmMeta.author = this.avatar.params.author;
@@ -264,13 +269,13 @@ export class App {
     for (const [k, b] of Object.entries(this.tabButtons)) b.classList.toggle('active', k === t);
     const body = this.left.querySelector('.tab-body') as HTMLElement;
     const scroll = body?.scrollTop ?? 0;
-    const content = t === 'avatar' ? buildAvatarPanel(this) : t === 'paint' ? buildPaintPanel(this) : t === 'model' ? buildModelPanel(this) : t === 'pose' ? buildPosePanel(this) : buildScenePanel(this);
+    const content = t === 'avatar' ? buildAvatarPanel(this) : t === 'hair' ? buildHairPanel(this) : t === 'paint' ? buildPaintPanel(this) : t === 'model' ? buildModelPanel(this) : t === 'pose' ? buildPosePanel(this) : buildScenePanel(this);
     clear(this.left).append(
       h(
         'nav',
         { class: 'tabs' },
-        ...(['avatar', 'paint', 'model', 'pose', 'scene'] as Tab[]).map((k) => {
-          const labels: Record<Tab, [string, string]> = { avatar: ['👤', 'アバター'], paint: ['🖌', 'ペイント'], model: ['🧊', 'モデル'], pose: ['🎬', 'ポーズ'], scene: ['🗂', 'シーン'] };
+        ...(['avatar', 'hair', 'paint', 'model', 'pose', 'scene'] as Tab[]).map((k) => {
+          const labels: Record<Tab, [string, string]> = { avatar: ['👤', 'アバター'], hair: ['💇', '髪の房'], paint: ['🖌', 'ペイント'], model: ['🧊', 'モデル'], pose: ['🎬', 'ポーズ'], scene: ['🗂', 'シーン'] };
           const b = h('button', { class: `tab ${k === t ? 'active' : ''}`, on: { click: () => this.setTab(k) } }, h('span', { class: 'ico' }, labels[k][0]), h('span', null, labels[k][1]));
           this.tabButtons[k] = b;
           return b;
@@ -282,6 +287,7 @@ export class App {
     if (nb) nb.scrollTop = scroll;
     this.poseEditor.setActive(t === 'pose' && this.poseEditor.wanted);
     this.painter.setActive(t === 'paint');
+    this.hairEditor.setActive(t === 'hair');
   }
 
   renderProps() {
@@ -535,7 +541,7 @@ export class App {
       version: 1,
       savedAt: new Date().toISOString(),
       avatar: {
-        params: { ...this.avatar.params },
+        params: structuredClone(this.avatar.params),
         pose: this.avatar.pose,
         poseName: this.avatar.poseName,
         expressions: { ...this.avatar.expressions },
@@ -562,7 +568,7 @@ export class App {
     this.mixers.clear();
     this.studio.select(null);
     if (p.avatar) {
-      this.avatar.params = { ...defaultParams, ...p.avatar.params };
+      this.avatar.params = structuredClone({ ...defaultParams, ...p.avatar.params });
       this.avatar.pose = p.avatar.pose;
       this.avatar.poseName = p.avatar.poseName;
       Object.assign(this.avatar.expressions, p.avatar.expressions);
@@ -575,7 +581,7 @@ export class App {
       this.avatar.root.quaternion.fromArray(t.q);
       this.avatar.root.scale.fromArray(t.s);
       this.avatar.holder.visible = p.avatar.visible;
-      this.committedParams = { ...this.avatar.params };
+      this.committedParams = structuredClone(this.avatar.params);
     }
     for (const o of await deserializeObjects(p.objects)) this.studio.content.add(o);
     if (p.scene) {

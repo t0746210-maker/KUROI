@@ -195,7 +195,7 @@ export class Studio {
     this.selected = o;
     if (o && !o.userData.locked) this.gizmo.attach(o);
     else this.gizmo.detach();
-    this.selectionBox.visible = !!o && !o.userData.isBone;
+    this.selectionBox.visible = !!o && !o.userData.isBone && !o.userData.strandHandle;
     if (o) this.selectionBox.setFromObject(o);
     this.emit('select', o);
   }

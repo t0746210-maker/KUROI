@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { AvatarParams } from './params';
+import type { AvatarParams, HairStrand } from './params';
 import { axisRing, disc, ellipsoid, loft, normalizeAttributes, strand, type Ring } from './geom';
 import { blushTexture, irisTexture, makeMaterial, outlineMaterial } from './materials';
 
@@ -49,6 +49,8 @@ export interface AvatarData {
   /** 目のボーンからの視線オフセット（VRM lookAt 用） */
   eyeOffset: THREE.Vector3;
   height: number;
+  /** 髪の房エディタ用: head ボーンのローカル空間での頭部中心と半径 */
+  headFrame: { offset: THREE.Vector3; radii: THREE.Vector3 };
 }
 
 interface BoneSeg {
@@ -60,6 +62,8 @@ interface BoneSeg {
 interface Part {
   geo: THREE.BufferGeometry;
   mat: number;
+  /** 頂点カラーを単色で上書き（髪の房の色指定） */
+  vcolor?: string;
   bones?: string[];
   force?: string;
 }
@@ -209,6 +213,16 @@ export function buildAvatar(p: AvatarParams): AvatarData {
       chainDefs.push({ name: `back${phi}`, points: pts, stiffness: 1.2, gravity: 0.25, drag: 0.45 });
     }
   }
+  // 髪の房エディタの房（揺れ物指定のもの）は制御点をそのままボーンチェーンにする
+  const strandList = expandStrands(p.customStrands ?? []);
+  const fromHead = (q: [number, number, number]) => V(headC.x + q[0] * hrx, headC.y + q[1] * hry, headC.z + q[2] * hrz);
+  const strandPoints = strandList.map((st) => scaledPoints(st).map(fromHead));
+  strandList.forEach((st, i) => {
+    if (st.spring && strandPoints[i].length >= 2) {
+      chainDefs.push({ name: `s${i}`, points: strandPoints[i].map((v) => v.clone()), stiffness: st.stiffness, gravity: 0.3, drag: 0.4 });
+    }
+  });
+
   for (const c of chainDefs) {
     // 末端ボーン（VRM のテール）を追加
     const n = c.points.length;
@@ -424,7 +438,8 @@ export function buildAvatar(p: AvatarParams): AvatarData {
 
   // ---------------------------------------------------------------- 髪
   const hairParts: Part[] = [];
-  const hairBoneCands = ['head', ...Object.keys(bonePos).filter((n) => n.startsWith('hair_'))];
+  // 既存の髪型は房エディタ用のチェーン（hair_s*）を使わない
+  const hairBoneCands = ['head', ...Object.keys(bonePos).filter((n) => n.startsWith('hair_') && !n.startsWith('hair_s'))];
   const capK = 1.06 + 0.04 * (hv - 1);
   if (p.hairStyle !== 'none') {
     hairParts.push({ geo: hairCap(headC, hrx * capK, hry * capK, hrz * capK, p), mat: 0, force: 'head' });
@@ -458,7 +473,7 @@ export function buildAvatar(p: AvatarParams): AvatarData {
   }
   // サイドの髪
   const sidelockLong = ['long', 'ponytail', 'twintails', 'bun'].includes(p.hairStyle);
-  if (p.hairStyle !== 'none' && p.hairStyle !== 'spiky') {
+  if (p.hairStyle !== 'none' && p.hairStyle !== 'spiky' && p.hairStyle !== 'cap') {
     for (const side of [1, -1]) {
       const endY = sidelockLong ? s(L.upperChestY + 0.01) + (1 - hl) * s(0.05) : headC.y - hry * 1.15;
       const endZ = sidelockLong ? s(0.065 + 0.012 * bustK) : headC.z + hrz * 0.35;
@@ -562,6 +577,47 @@ export function buildAvatar(p: AvatarParams): AvatarData {
       hairParts.push({ geo: strand(pts, (t) => s(0.022) * (1 - t * 0.95), (t) => s(0.012) * (1 - t * 0.9), { up: V(0, 1, 0) }), mat: 0, force: 'head' });
     }
   }
+  // 髪の房エディタの房
+  strandList.forEach((st, i) => {
+    const pts = strandPoints[i];
+    if (pts.length < 2) return;
+    const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+    const n = Math.max(12, pts.length * 6);
+    let dense = curve.getSpacedPoints(n);
+    if (st.curl > 0.001) {
+      // らせん状のカール（根元は固定し、先に行くほど大きく）
+      const len = curve.getLength();
+      const amp = len * 0.06 * st.curl;
+      const turns = 2 + 3 * st.curl;
+      dense = dense.map((pt, k) => {
+        const t = k / n;
+        const T = curve.getTangentAt(Math.min(1, t)).normalize();
+        const side = new THREE.Vector3().crossVectors(T, V(0, 0, 1));
+        if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+        side.normalize();
+        const nrm = new THREE.Vector3().crossVectors(side, T).normalize();
+        const a = t * turns * Math.PI * 2;
+        const k2 = amp * Math.min(1, t * 3);
+        return pt.clone().addScaledVector(side, Math.cos(a) * k2).addScaledVector(nrm, Math.sin(a) * k2);
+      });
+    }
+    const w = s(0.016) * st.width;
+    const th = s(0.006) * st.thickness;
+    const up = pts[Math.min(1, pts.length - 1)].clone().sub(headC).normalize();
+    const geo = strand(dense, (t) => w * Math.max(0.05, 1 - st.taper * Math.pow(t, 1.4)), (t) => th * (1 - 0.6 * st.taper * t), {
+      up,
+      samples: Math.min(40, dense.length * 2),
+      twist: st.twist,
+    });
+    const chain = st.spring ? Object.keys(bonePos).filter((nm) => nm.startsWith(`hair_s${i}_`)) : [];
+    hairParts.push({
+      geo,
+      mat: st.color === 'accent' ? 1 : 0,
+      vcolor: st.color === 'main' ? p.hairColor : st.color === 'sub' ? p.hairColor2 : undefined,
+      ...(chain.length ? { bones: ['head', ...chain] } : { force: 'head' }),
+    });
+  });
+
   // アホ毛
   if (p.ahoge && p.hairStyle !== 'none') {
     const a = P(5, 84, 0.97 * capK);
@@ -867,10 +923,13 @@ export function buildAvatar(p: AvatarParams): AvatarData {
     const c1 = new THREE.Color(p.hairColor);
     const c2 = new THREE.Color(p.hairColor2);
     const c = new THREE.Color();
+    const fixed = part.vcolor ? new THREE.Color(part.vcolor) : null;
     for (let i = 0; i < pos.count; i++) {
-      const t = THREE.MathUtils.smoothstep(pos.getY(i), hairTopY, hairBotY);
-      const k = THREE.MathUtils.clamp((hairTopY - pos.getY(i)) / (hairTopY - hairBotY), 0, 1);
-      c.copy(c1).lerp(c2, Math.pow(k, 1.6) * 0.85 + t * 0);
+      if (fixed) c.copy(fixed);
+      else {
+        const k = THREE.MathUtils.clamp((hairTopY - pos.getY(i)) / (hairTopY - hairBotY), 0, 1);
+        c.copy(c1).lerp(c2, Math.pow(k, 1.6) * 0.85);
+      }
       col.set([c.r, c.g, c.b], i * 3);
     }
     part.geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
@@ -933,6 +992,7 @@ export function buildAvatar(p: AvatarParams): AvatarData {
     springs,
     colliders,
     eyeOffset: V(0, eyeBoneY - bonePos.head.y, hrz),
+    headFrame: { offset: headC.clone().sub(bonePos.head), radii: V(hrx, hry, hrz) },
     height: p.height,
   };
 }
@@ -1323,4 +1383,22 @@ function packUV(g: THREE.BufferGeometry, i: number, grid: number) {
     uv.setXY(k, (col + pad + u * (1 - 2 * pad)) / grid, 1 - (row + 1 - pad - v * (1 - 2 * pad)) / grid);
   }
   uv.needsUpdate = true;
+}
+
+/** ミラー指定の房を左右 2 本に展開する */
+export function expandStrands(list: HairStrand[]): HairStrand[] {
+  const out: HairStrand[] = [];
+  for (const st of list) {
+    out.push(st);
+    if (st.mirror) out.push({ ...st, id: st.id + '_m', twist: -st.twist, points: st.points.map(([x, y, z]) => [-x, y, z] as [number, number, number]) });
+  }
+  return out;
+}
+
+/** 長さ倍率を適用した制御点（根元を基準に伸縮） */
+export function scaledPoints(st: HairStrand): [number, number, number][] {
+  const r = st.points[0];
+  if (!r) return [];
+  const k = st.length ?? 1;
+  return st.points.map((q, i) => (i === 0 ? q : [r[0] + (q[0] - r[0]) * k, r[1] + (q[1] - r[1]) * k, r[2] + (q[2] - r[2]) * k]));
 }

@@ -72,7 +72,7 @@ button, input, select { font: inherit; color: inherit; }
 .panel { background: var(--panel); border-right: 1px solid var(--line); min-height: 0; display: flex; flex-direction: column; }
 .panel.left { grid-area: left; }
 .panel.right { grid-area: right; border-right: none; border-left: 1px solid var(--line); overflow-y: auto; padding: 12px; }
-.tabs { display: grid; grid-template-columns: repeat(5, 1fr); border-bottom: 1px solid var(--line); }
+.tabs { display: grid; grid-template-columns: repeat(6, 1fr); border-bottom: 1px solid var(--line); }
 .tab { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--mute); cursor: pointer; font-size: 11px; }
 .tab .ico { font-size: 16px; }
 .tab:hover { color: var(--text); background: #ffffff06; }
@@ -246,3 +246,11 @@ kbd { font-family: ui-monospace, monospace; font-size: 11px; padding: 2px 6px; b
 .layer-info small { color: var(--mute); font-size: 11px; }
 .layer-actions { display: flex; gap: 2px; }
 .layer-actions .btn { padding: 3px 6px; }
+
+/* ---------------------------------------------------------------- hair strands */
+.strand-list { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow-y: auto; }
+.strand-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; font-size: 12px; }
+.strand-item:hover { background: #ffffff0a; }
+.strand-item.sel { background: #ff5fa226; }
+.strand-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strand-item .ico { color: var(--accent2); width: 16px; text-align: center; }

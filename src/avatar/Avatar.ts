@@ -34,7 +34,7 @@ export class Avatar {
   baker: UVBaker | null = null;
 
   constructor(params: Partial<AvatarParams> = {}) {
-    this.params = { ...defaultParams, ...params };
+    this.params = structuredClone({ ...defaultParams, ...params });
     this.holder.name = 'AvatarHolder';
     this.holder.userData.isAvatarHolder = true;
     for (const e of EXPRESSIONS) this.expressions[e] = 0;
@@ -46,7 +46,7 @@ export class Avatar {
   }
 
   rebuild(params?: AvatarParams) {
-    if (params) this.params = { ...params };
+    if (params) this.params = structuredClone(params);
     const old = this.data;
     const oldTransform = old ? { p: old.root.position.clone(), q: old.root.quaternion.clone(), s: old.root.scale.clone() } : null;
     if (old) {

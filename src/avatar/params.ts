@@ -1,3 +1,28 @@
+/** 髪の房エディタで作る 1 本の房。制御点は頭部中心・頭の半径で正規化した座標 */
+export interface HairStrand {
+  id: string;
+  name: string;
+  points: [number, number, number][];
+  /** 太さ（幅）の倍率 */
+  width: number;
+  /** 厚みの倍率 */
+  thickness: number;
+  /** 先細り 0..1 */
+  taper: number;
+  /** ねじれ（ラジアン） */
+  twist: number;
+  /** カール（らせん）の強さ 0..1 */
+  curl: number;
+  /** 根元からの長さの倍率 */
+  length: number;
+  color: 'gradient' | 'main' | 'sub' | 'accent';
+  /** X 軸対称のコピーも作る */
+  mirror: boolean;
+  /** 揺れ物（SpringBone）にする */
+  spring: boolean;
+  stiffness: number;
+}
+
 /** アバターの全パラメータ。すべてシリアライズ可能なプレーンデータ。 */
 export interface AvatarParams {
   name: string;
@@ -34,11 +59,13 @@ export interface AvatarParams {
   noseSize: number;
   earType: 'human' | 'elf' | 'cat' | 'none';
   // 髪
-  hairStyle: 'short' | 'bob' | 'long' | 'ponytail' | 'twintails' | 'spiky' | 'bun' | 'none';
+  hairStyle: 'short' | 'bob' | 'long' | 'ponytail' | 'twintails' | 'spiky' | 'bun' | 'cap' | 'none';
   bangs: 'straight' | 'side' | 'parted' | 'none';
   hairLength: number;
   hairVolume: number;
   ahoge: boolean;
+  /** 髪の房エディタで追加した房 */
+  customStrands: HairStrand[];
   // 衣装
   outfit: 'none' | 'casual' | 'dress' | 'uniform' | 'hoodie' | 'suit';
   skirtLength: number;
@@ -96,6 +123,7 @@ export const defaultParams: AvatarParams = {
   hairLength: 1,
   hairVolume: 1,
   ahoge: true,
+  customStrands: [],
   outfit: 'uniform',
   skirtLength: 0.5,
   sleeveLength: 0.5,
@@ -202,6 +230,7 @@ export const sections: Section[] = [
           ['twintails', 'ツインテール'],
           ['bun', 'お団子'],
           ['spiky', 'ツンツン'],
+          ['cap', 'ベースのみ（房エディタ用）'],
           ['none', 'なし'],
         ],
       },
