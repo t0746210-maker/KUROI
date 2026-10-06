@@ -72,7 +72,7 @@ button, input, select { font: inherit; color: inherit; }
 .panel { background: var(--panel); border-right: 1px solid var(--line); min-height: 0; display: flex; flex-direction: column; }
 .panel.left { grid-area: left; }
 .panel.right { grid-area: right; border-right: none; border-left: 1px solid var(--line); overflow-y: auto; padding: 12px; }
-.tabs { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line); }
+.tabs { display: grid; grid-template-columns: repeat(5, 1fr); border-bottom: 1px solid var(--line); }
 .tab { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--mute); cursor: pointer; font-size: 11px; }
 .tab .ico { font-size: 16px; }
 .tab:hover { color: var(--text); background: #ffffff06; }
@@ -233,3 +233,16 @@ kbd { font-family: ui-monospace, monospace; font-size: 11px; padding: 2px 6px; b
   .statusbar { position: sticky; bottom: 0; }
   .statusbar .stats { display: none; }
 }
+
+/* ---------------------------------------------------------------- paint */
+.brush-cursor { position: absolute; display: none; pointer-events: none; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #0008, inset 0 0 0 1px #0008; z-index: 5; }
+.swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+.sw { aspect-ratio: 1; border-radius: 6px; border: 1px solid #ffffff22; cursor: pointer; padding: 0; }
+.sw.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.layer-row { display: flex; gap: 10px; align-items: center; padding: 6px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel2); }
+.layer-row.painted { border-color: #ff5fa266; }
+.layer-thumb { width: 48px; height: 48px; border-radius: 6px; background: repeating-conic-gradient(#2a2e40 0 25%, #1e2130 0 50%) 0 0 / 12px 12px; flex-shrink: 0; }
+.layer-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.layer-info small { color: var(--mute); font-size: 11px; }
+.layer-actions { display: flex; gap: 2px; }
+.layer-actions .btn { padding: 3px 6px; }

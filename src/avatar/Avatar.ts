@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { buildAvatar, EXPRESSIONS, type AvatarData, type ExpressionName } from './AvatarBuilder';
+import { buildAvatar, EXPRESSIONS, PAINTABLE_MESHES, type AvatarData, type ExpressionName } from './AvatarBuilder';
+import { PaintLayer, type UVBaker } from '../paint/PaintLayer';
 import { defaultParams, type AvatarParams } from './params';
 import { SpringBoneSimulator } from './SpringBones';
 import { applyPose, buildClips, POSES, type Pose } from './animations';
@@ -27,6 +28,10 @@ export class Avatar {
   private blinkTimer = 2;
   private blinkPhase = -1;
   readonly holder = new THREE.Group();
+  /** マテリアル名 → ペイントレイヤー（再生成しても保持される） */
+  readonly paint = new Map<string, PaintLayer>();
+  /** UV 空間ベイク用（ブラウザでのみ設定される） */
+  baker: UVBaker | null = null;
 
   constructor(params: Partial<AvatarParams> = {}) {
     this.params = { ...defaultParams, ...params };
@@ -64,6 +69,50 @@ export class Avatar {
     this.applyPose(this.pose, this.poseName);
     if (this.currentClip) this.play(this.currentClip);
     this.applyExpressions();
+    this.applyPaint();
+  }
+
+  /** ペイント可能なマテリアル（体・髪・衣装） */
+  paintTargets(): { mesh: THREE.SkinnedMesh; index: number; material: THREE.Material }[] {
+    const out: { mesh: THREE.SkinnedMesh; index: number; material: THREE.Material }[] = [];
+    for (const mesh of this.data.meshes) {
+      if (!PAINTABLE_MESHES.includes(mesh.name)) continue;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      mats.forEach((material, index) => out.push({ mesh, index, material }));
+    }
+    return out;
+  }
+
+  /** ペイントレイヤーを取得（なければ作成して適用） */
+  layer(name: string, create = true): PaintLayer | null {
+    let l = this.paint.get(name);
+    if (!l && create && this.baker) {
+      l = new PaintLayer(name);
+      this.paint.set(name, l);
+      this.applyPaint(name);
+    }
+    return l ?? null;
+  }
+
+  removeLayer(name: string) {
+    this.paint.delete(name);
+    this.rebuild();
+  }
+
+  /** 生成直後のマテリアルにペイントを適用（下地は現在の色で毎回焼き直す） */
+  applyPaint(only?: string) {
+    if (!this.baker) return;
+    for (const t of this.paintTargets()) {
+      const layer = this.paint.get(t.material.name);
+      if (!layer || (only && only !== t.material.name)) continue;
+      const m = t.material as THREE.MeshStandardMaterial;
+      if (m.map === layer.texture) continue;
+      layer.setBase(this.baker.bake(t.mesh, t.index, layer.size));
+      m.color.set(0xffffff);
+      m.vertexColors = false;
+      m.map = layer.texture;
+      m.needsUpdate = true;
+    }
   }
 
   applyPose(pose: Pose, name = 'カスタム') {
@@ -171,7 +220,7 @@ export function disposeObject(o: THREE.Object3D) {
     if (m.geometry) m.geometry.dispose();
     const mats = m.material ? (Array.isArray(m.material) ? m.material : [m.material]) : [];
     for (const mat of mats) {
-      for (const v of Object.values(mat)) if (v instanceof THREE.Texture && v.name !== 'toonGradient') v.dispose();
+      for (const v of Object.values(mat)) if (v instanceof THREE.Texture && v.name !== 'toonGradient' && !v.name.startsWith('paint_')) v.dispose();
       mat.dispose();
     }
   });

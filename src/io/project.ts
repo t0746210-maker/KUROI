@@ -16,6 +16,8 @@ export interface ProjectFile {
     clip: string | null;
     visible: boolean;
     transform: { p: number[]; q: number[]; s: number[] };
+    /** マテリアル名 → ストロークレイヤー PNG (data URL) */
+    paint?: Record<string, string>;
   };
   objects: any[];
   scene: { lightPreset: string; camera: number[]; target: number[] };

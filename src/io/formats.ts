@@ -123,6 +123,9 @@ async function withStandardMaterials<T>(root: THREE.Object3D, fn: () => Promise<
   }
 }
 
+const paintMaps = (ctx: ExportContext) =>
+  Object.fromEntries([...(ctx.avatar?.paint ?? new Map())].map(([k, l]) => [k, l.composite as HTMLCanvasElement]));
+
 /** 焼き込みメッシュが参照するテクスチャを PNG に変換 */
 async function encodeTextures(meshes: BakedMesh[]): Promise<Map<THREE.Texture, Uint8Array>> {
   const out = new Map<THREE.Texture, Uint8Array>();
@@ -162,7 +165,7 @@ export const FORMATS: ExportFormat[] = [
     needsAvatar: true,
     async run(ctx) {
       const thumb = await ctx.thumbnail();
-      const data = await exportVRM(ctx.avatar!.params, '1.0', ctx.options.vrmMeta, thumb);
+      const data = await exportVRM(ctx.avatar!.params, '1.0', ctx.options.vrmMeta, thumb, paintMaps(ctx));
       return { data, filename: `${ctx.name}.vrm`, mime: 'model/gltf-binary' };
     },
   },
@@ -176,7 +179,7 @@ export const FORMATS: ExportFormat[] = [
     needsAvatar: true,
     async run(ctx) {
       const thumb = await ctx.thumbnail();
-      const data = await exportVRM(ctx.avatar!.params, '0.x', ctx.options.vrmMeta, thumb);
+      const data = await exportVRM(ctx.avatar!.params, '0.x', ctx.options.vrmMeta, thumb, paintMaps(ctx));
       return { data, filename: `${ctx.name}_vrm0.vrm`, mime: 'model/gltf-binary' };
     },
   },

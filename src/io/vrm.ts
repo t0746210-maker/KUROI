@@ -98,6 +98,8 @@ export async function exportVRM(
   version: '1.0' | '0.x',
   meta: VRMMeta,
   thumbnail?: Uint8Array | null,
+  /** マテリアル名 → ペイント済みテクスチャ（合成済みキャンバス） */
+  paint?: Record<string, HTMLCanvasElement>,
 ): Promise<ArrayBuffer> {
   const data = buildAvatar({ ...params, toon: false, outline: false });
   // アウトライン用ハルは除外
@@ -106,7 +108,16 @@ export async function exportVRM(
   const matByName = new Map<string, THREE.Material>();
   for (const m of data.meshes) {
     for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
-      if (mat.name === 'Hair') {
+      const painted = paint?.[mat.name];
+      if (painted) {
+        const sm = mat as THREE.MeshStandardMaterial;
+        const tex = new THREE.CanvasTexture(painted);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.name = `paint_${mat.name}`;
+        sm.map = tex;
+        sm.color.set(0xffffff);
+        sm.vertexColors = false;
+      } else if (mat.name === 'Hair') {
         (mat as THREE.MeshStandardMaterial).vertexColors = false;
         const c1 = new THREE.Color(params.hairColor);
         const c2 = new THREE.Color(params.hairColor2);
@@ -244,6 +255,11 @@ export async function exportVRM(
         uvAnimationRotationSpeedFactor: 0,
       };
       if (src?.userData.mtoon?.unlit) m.extensions.VRMC_materials_mtoon.shadeColorFactor = (m.pbrMetallicRoughness?.baseColorFactor ?? [1, 1, 1, 1]).slice(0, 3);
+      else if (m.pbrMetallicRoughness?.baseColorTexture) {
+        // テクスチャ（ペイント）付きは影側にも同じテクスチャを乗算する
+        m.extensions.VRMC_materials_mtoon.shadeMultiplyTexture = { index: m.pbrMetallicRoughness.baseColorTexture.index };
+        m.extensions.VRMC_materials_mtoon.shadeColorFactor = [0.62, 0.58, 0.64];
+      }
     });
     json.extensions ??= {};
     json.extensions.VRMC_vrm = vrm;
@@ -268,7 +284,8 @@ export async function exportVRM(
       const src = matByName.get(m.name);
       const base = m.pbrMetallicRoughness?.baseColorFactor ?? [1, 1, 1, 1];
       const baseS = linearToSRGBArray(new THREE.Color(base[0], base[1], base[2]));
-      const shade = src?.userData.mtoon?.unlit ? baseS : linearToSRGBArray(new THREE.Color(src?.userData.mtoon?.shadeColor ?? '#999999'));
+      const tex0 = m.pbrMetallicRoughness?.baseColorTexture?.index;
+      const shade = src?.userData.mtoon?.unlit ? baseS : tex0 !== undefined ? [0.8, 0.78, 0.82] : linearToSRGBArray(new THREE.Color(src?.userData.mtoon?.shadeColor ?? '#999999'));
       const transparent = m.alphaMode === 'BLEND';
       const tex = m.pbrMetallicRoughness?.baseColorTexture?.index;
       const outline = ['Skin', 'Hair', 'OutfitMain', 'OutfitSub', 'OutfitAccent', 'Shoes', 'Inner', 'HairAccessory'].includes(m.name);
@@ -293,7 +310,7 @@ export async function exportVRM(
           _RimColor: [0, 0, 0, 1],
           _OutlineColor: [...linearToSRGBArray(new THREE.Color(params.hairColor).multiplyScalar(0.35)), 1],
         },
-        textureProperties: tex !== undefined ? { _MainTex: tex } : {},
+        textureProperties: tex !== undefined ? { _MainTex: tex, ...(src?.userData.mtoon?.unlit ? {} : { _ShadeTexture: tex }) } : {},
         keywordMap: transparent ? { _ALPHABLEND_ON: true } : {},
         tagMap: { RenderType: transparent ? 'Transparent' : 'Opaque' },
       };

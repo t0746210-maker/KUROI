@@ -65,6 +65,13 @@ interface Part {
 }
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+
+/**
+ * ペイント用 UV アトラスのマス数（一辺）。固定にしておくことで、スライダー調整や房の追加で
+ * パーツ数が変わっても既存パーツのマス位置がずれず、ペイントが保たれる。
+ */
+export const ATLAS_GRID = { Body: 6, Hair: 12, Outfit: 8 } as const;
+export const PAINTABLE_MESHES = Object.keys(ATLAS_GRID);
 const deg = THREE.MathUtils.degToRad;
 
 /**
@@ -793,8 +800,10 @@ export function buildAvatar(p: AvatarParams): AvatarData {
   };
 
   const meshes: THREE.SkinnedMesh[] = [];
-  const makeSkinned = (name: string, parts: Part[], mats: THREE.Material[]) => {
+  const makeSkinned = (name: string, parts: Part[], mats: THREE.Material[], atlasGrid = 0) => {
     if (!parts.length) return null;
+    // テクスチャペイント用に、パーツごとに UV を重ならないアトラスのマスへ割り当てる
+    if (atlasGrid) parts.forEach((part, i) => packUV(part.geo, i, atlasGrid));
     const byMat = new Map<number, THREE.BufferGeometry[]>();
     for (const part of parts) {
       if (!byMat.has(part.mat)) byMat.set(part.mat, []);
@@ -819,7 +828,7 @@ export function buildAvatar(p: AvatarParams): AvatarData {
 
   // 体
   skin(bodyParts);
-  makeSkinned('Body', bodyParts, [skinMat]);
+  makeSkinned('Body', bodyParts, [skinMat], ATLAS_GRID.Body);
 
   // 顔
   const faceMats = [
@@ -867,7 +876,7 @@ export function buildAvatar(p: AvatarParams): AvatarData {
     part.geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   }
   skin(hairParts, ['color']);
-  makeSkinned('Hair', hairParts, hairMats);
+  makeSkinned('Hair', hairParts, hairMats, ATLAS_GRID.Hair);
 
   // 衣装
   const outfitMats = [
@@ -878,7 +887,7 @@ export function buildAvatar(p: AvatarParams): AvatarData {
     makeMaterial(p.outfitColor2, { toon, name: 'Inner', roughness: 0.6 }),
   ];
   skin(outfitParts);
-  makeSkinned('Outfit', outfitParts, outfitMats);
+  makeSkinned('Outfit', outfitParts, outfitMats, ATLAS_GRID.Outfit);
 
   // ---------------------------------------------------------------- アウトライン
   const outlines: THREE.SkinnedMesh[] = [];
@@ -1298,4 +1307,20 @@ function fixNormals(g: THREE.BufferGeometry) {
     else v.divideScalar(l);
     n.setXYZ(i, v.x, v.y, v.z);
   }
+}
+
+/** パーツの UV(0..1) をアトラスの i 番目のマスへ写像する（マスの内側に余白を残す） */
+function packUV(g: THREE.BufferGeometry, i: number, grid: number) {
+  const uv = g.attributes.uv as THREE.BufferAttribute | undefined;
+  if (!uv) return;
+  const cell = i % (grid * grid);
+  const col = cell % grid;
+  const row = Math.floor(cell / grid);
+  const pad = 0.04;
+  for (let k = 0; k < uv.count; k++) {
+    const u = THREE.MathUtils.clamp(uv.getX(k), 0, 1);
+    const v = THREE.MathUtils.clamp(uv.getY(k), 0, 1);
+    uv.setXY(k, (col + pad + u * (1 - 2 * pad)) / grid, 1 - (row + 1 - pad - v * (1 - 2 * pad)) / grid);
+  }
+  uv.needsUpdate = true;
 }

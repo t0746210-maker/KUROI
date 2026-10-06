@@ -143,6 +143,25 @@ describe('アバター生成', () => {
     });
   }
 
+  it('ペイント用 UV アトラスはパーツごとに重ならない', () => {
+    const d = buildAvatar(defaultParams);
+    for (const m of d.meshes.filter((x) => x.name !== 'Face')) {
+      const uv = m.geometry.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) {
+        expect(uv.getX(i)).toBeGreaterThanOrEqual(0);
+        expect(uv.getX(i)).toBeLessThanOrEqual(1);
+        expect(uv.getY(i)).toBeGreaterThanOrEqual(0);
+        expect(uv.getY(i)).toBeLessThanOrEqual(1);
+      }
+    }
+    // 頭部（1 番目以降のパーツ）と胴体（0 番目）は別のマスにある
+    const body = d.meshes.find((x) => x.name === 'Body')!;
+    const uv = body.geometry.attributes.uv as THREE.BufferAttribute;
+    const cells = new Set<string>();
+    for (let i = 0; i < uv.count; i += 50) cells.add(`${Math.floor(uv.getX(i) * 6)},${Math.floor((1 - uv.getY(i)) * 6)}`);
+    expect(cells.size).toBeGreaterThan(5);
+  });
+
   it('ポーズで焼き込むと頂点が動く', () => {
     const d = buildAvatar(defaultParams);
     const before = bakeScene(d.root).find((b) => b.name === 'Body')!.positions.slice();

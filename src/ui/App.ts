@@ -15,8 +15,11 @@ import { buildScenePanel } from './panels/scenePanel';
 import { buildPropsPanel } from './panels/propsPanel';
 import { openExportDialog } from './panels/exportDialog';
 import { PoseEditor } from './PoseEditor';
+import { Painter } from '../paint/Painter';
+import { UVBaker } from '../paint/PaintLayer';
+import { buildPaintPanel } from './panels/paintPanel';
 
-type Tab = 'avatar' | 'model' | 'pose' | 'scene';
+type Tab = 'avatar' | 'paint' | 'model' | 'pose' | 'scene';
 
 export class App {
   studio: Studio;
@@ -28,6 +31,7 @@ export class App {
   statusMsg!: HTMLElement;
   statusStats!: HTMLElement;
   poseEditor: PoseEditor;
+  painter: Painter;
   mixers = new Map<THREE.Object3D, THREE.AnimationMixer>();
   exportOptions: ExportOptions;
   private rebuildQueued = false;
@@ -56,6 +60,9 @@ export class App {
       for (const m of this.mixers.values()) m.update(dt);
     });
     this.poseEditor = new PoseEditor(this);
+    this.avatar.baker = new UVBaker(this.studio.renderer);
+    this.painter = new Painter(this);
+    this.painter.onChange = () => this.tab === 'paint' && this.setTab('paint');
     this.exportOptions = {
       tpose: false,
       includeAnimations: true,
@@ -257,13 +264,13 @@ export class App {
     for (const [k, b] of Object.entries(this.tabButtons)) b.classList.toggle('active', k === t);
     const body = this.left.querySelector('.tab-body') as HTMLElement;
     const scroll = body?.scrollTop ?? 0;
-    const content = t === 'avatar' ? buildAvatarPanel(this) : t === 'model' ? buildModelPanel(this) : t === 'pose' ? buildPosePanel(this) : buildScenePanel(this);
+    const content = t === 'avatar' ? buildAvatarPanel(this) : t === 'paint' ? buildPaintPanel(this) : t === 'model' ? buildModelPanel(this) : t === 'pose' ? buildPosePanel(this) : buildScenePanel(this);
     clear(this.left).append(
       h(
         'nav',
         { class: 'tabs' },
-        ...(['avatar', 'model', 'pose', 'scene'] as Tab[]).map((k) => {
-          const labels: Record<Tab, [string, string]> = { avatar: ['👤', 'アバター'], model: ['🧊', 'モデリング'], pose: ['🎬', 'ポーズ/動き'], scene: ['🗂', 'シーン'] };
+        ...(['avatar', 'paint', 'model', 'pose', 'scene'] as Tab[]).map((k) => {
+          const labels: Record<Tab, [string, string]> = { avatar: ['👤', 'アバター'], paint: ['🖌', 'ペイント'], model: ['🧊', 'モデル'], pose: ['🎬', 'ポーズ'], scene: ['🗂', 'シーン'] };
           const b = h('button', { class: `tab ${k === t ? 'active' : ''}`, on: { click: () => this.setTab(k) } }, h('span', { class: 'ico' }, labels[k][0]), h('span', null, labels[k][1]));
           this.tabButtons[k] = b;
           return b;
@@ -274,6 +281,7 @@ export class App {
     const nb = this.left.querySelector('.tab-body') as HTMLElement;
     if (nb) nb.scrollTop = scroll;
     this.poseEditor.setActive(t === 'pose' && this.poseEditor.wanted);
+    this.painter.setActive(t === 'paint');
   }
 
   renderProps() {
@@ -534,6 +542,7 @@ export class App {
         clip: this.avatar.currentClip,
         visible: this.avatar.holder.visible,
         transform: { p: r.position.toArray(), q: r.quaternion.toArray(), s: r.scale.toArray() },
+        paint: Object.fromEntries([...this.avatar.paint].filter(([, l]) => !l.isEmpty).map(([k, l]) => [k, l.toDataURL()])),
       },
       objects,
       scene: {
@@ -558,7 +567,9 @@ export class App {
       this.avatar.poseName = p.avatar.poseName;
       Object.assign(this.avatar.expressions, p.avatar.expressions);
       this.avatar.currentClip = p.avatar.clip;
+      this.avatar.paint.clear();
       this.avatar.rebuild();
+      for (const [k, url] of Object.entries(p.avatar.paint ?? {})) await this.avatar.layer(k)?.loadStrokes(url);
       const t = p.avatar.transform;
       this.avatar.root.position.fromArray(t.p);
       this.avatar.root.quaternion.fromArray(t.q);
@@ -602,6 +613,7 @@ export class App {
     p.avatar!.poseName = '自然体';
     p.avatar!.clip = null;
     p.avatar!.visible = true;
+    p.avatar!.paint = {};
     p.avatar!.transform = { p: [0, 0, 0], q: [0, 0, 0, 1], s: [1, 1, 1] };
     for (const k of Object.keys(p.avatar!.expressions)) p.avatar!.expressions[k] = 0;
     this.restoreProject(p).then(() => {
