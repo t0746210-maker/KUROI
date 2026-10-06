@@ -80,7 +80,7 @@ function rotateAvatar180(data: AvatarData) {
 
 async function toGLB(root: THREE.Object3D, animations: THREE.AnimationClip[] = []): Promise<ArrayBuffer> {
   const exporter = new GLTFExporter();
-  const res = await exporter.parseAsync(root, { binary: true, onlyVisible: true, animations });
+  const res = await exporter.parseAsync(root, { binary: true, onlyVisible: true, animations, trs: true });
   return res as ArrayBuffer;
 }
 

@@ -58,7 +58,7 @@ export function buildPropsPanel(app: App): HTMLElement {
     const refresh = () => {
       const v = get();
       inputs.forEach((inp, i) => {
-        if (document.activeElement !== inp) inp.value = (isRot ? deg((v as any)[keys[i]]) : (v as any)[keys[i]]).toFixed(isRot ? 1 : 3);
+        if (document.activeElement !== inp) inp.value = (isRot ? deg((v as any)[keys[i]]) : (v as any)[keys[i]]).toFixed(isRot ? 1 : 2);
       });
     };
     inputs.forEach((inp, i) => {

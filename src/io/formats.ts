@@ -129,7 +129,7 @@ async function gltf(ctx: ExportContext, binary: boolean): Promise<ArrayBuffer | 
     withStandardMaterials(ctx.content, async () => {
       const exporter = new GLTFExporter();
       const animations = ctx.options.includeAnimations && ctx.avatar ? ctx.avatar.clips : [];
-      return exporter.parseAsync(ctx.content, { binary, onlyVisible: true, animations, includeCustomExtensions: false });
+      return exporter.parseAsync(ctx.content, { binary, onlyVisible: true, animations, trs: true });
     }),
   );
 }

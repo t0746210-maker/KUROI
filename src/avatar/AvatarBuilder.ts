@@ -639,6 +639,7 @@ export function buildAvatar(p: AvatarParams): AvatarData {
     });
     return bottomY;
   };
+  let pantsBottomY = Infinity;
   const pants = (mat: number, length: number) => {
     // 腰回り
     outfitParts.push({ geo: loft(torsoProfile(scaleRows(torsoRows.slice(0, 4), 1.08, 0.002)), { segments: 28, capStart: true }), mat, bones: torsoBones });
@@ -646,6 +647,7 @@ export function buildAvatar(p: AvatarParams): AvatarData {
       const n = side === 1 ? 'left' : 'right';
       const lt = p.legThickness;
       const endY = THREE.MathUtils.lerp(L.upperLegY - 0.06, L.ankleY + 0.01, length);
+      pantsBottomY = Math.min(pantsBottomY, endY);
       const rows: [number, number][] = [
         [L.upperLegY + 0.025, 0.056 * lt],
         [L.upperLegY - 0.04, 0.052 * lt],
@@ -738,9 +740,6 @@ export function buildAvatar(p: AvatarParams): AvatarData {
       // フード
       const hc = V(0, s(L.neckY + 0.01), s(-0.03));
       outfitParts.push({ geo: ellipsoid(hc, s(0.075), s(0.045), s(0.045), 20, 12, (v) => { if (v.z > hc.z + s(0.01)) v.z = hc.z + s(0.01) + (v.z - hc.z - s(0.01)) * 0.3; }), mat: 0, bones: ['upperChest', 'neck'] });
-      // ポケット
-      const py = L.spineY + 0.02;
-      outfitParts.push({ geo: loft(torsoProfile([{ y: py, rx: 0.07, rz: 0.06 }, { y: py + 0.06, rx: 0.075, rz: 0.062 }]), { segments: 32, profile: (th) => (Math.cos(th) > 0.5 || Math.cos(th) < -0.5 ? 0.97 : 1.02) * (Math.sin(th) < 0 ? 1.0 : 0.95) }), mat: 1, bones: ['spine', 'hips'] });
       // ひも
       for (const side of [1, -1]) {
         const a = V(side * s(0.015), s(L.neckY - 0.008), s(0.045));
@@ -765,7 +764,8 @@ export function buildAvatar(p: AvatarParams): AvatarData {
     for (const side of [1, -1] as const) {
       const n = side === 1 ? 'left' : 'right';
       outfitParts.push({ geo: footGeometry(side * legX, footLen, S, 1.18), mat: 3, bones: [`${n}LowerLeg`, `${n}Foot`, `${n}Toes`] });
-      if (p.shoes === 'boots') {
+      // 長ズボンの下にブーツの筒が来る場合は、裾から飛び出さないよう省略
+      if (p.shoes === 'boots' && pantsBottomY > L.kneeY - 0.04) {
         const lt = p.legThickness;
         const rows: [number, number][] = [
           [L.kneeY - 0.025, 0.037 * lt],

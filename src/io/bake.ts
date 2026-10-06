@@ -124,6 +124,13 @@ export function bakeScene(root: THREE.Object3D): BakedMesh[] {
       ? g.groups.map((gr) => ({ start: gr.start, count: Math.min(gr.count, indices.length - gr.start), materialIndex: Array.isArray(mesh.material) ? gr.materialIndex ?? 0 : 0 }))
       : [{ start: 0, count: indices.length, materialIndex: 0 }];
     groups = groups.filter((gr) => gr.count > 0 && gr.materialIndex < mats.length);
+    // 連続した同一マテリアルのグループを結合（BoxGeometry の 6 面など）
+    groups = groups.reduce<typeof groups>((acc, gr) => {
+      const last = acc[acc.length - 1];
+      if (last && last.materialIndex === gr.materialIndex && last.start + last.count === gr.start) last.count += gr.count;
+      else acc.push({ ...gr });
+      return acc;
+    }, []);
 
     // 頂点カラー（マテリアル色を乗算して sRGB に）
     const colors = new Float32Array(n * 3);
